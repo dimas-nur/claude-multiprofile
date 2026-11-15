@@ -70,7 +70,7 @@ import {
   runningCopies,
   cloneIsRunning,
 } from "../appclone.js";
-import { resyncDenyRules, auditDenyRules, readProtectionEnabled } from "../permissions.js";
+import { resyncDenyRules, auditDenyRules, readProtectionEnabled, protectDefaultEnabled } from "../permissions.js";
 import { updateBlockState, blockUpdates, wantsUpdateBlock } from "../updates.js";
 import { recordFixPass } from "../state.js";
 import { takeSnapshot, finishSnapshot, fixTargets, undoLatest } from "../snapshot.js";
@@ -1393,6 +1393,20 @@ function checkGhIsolation(t, reg, fix) {
 
 // ---- Check: cross-profile read protection (issue #4) -----------------------
 
+// With the default install protected, ~/.claude counts as a profile, so one
+// registered Code profile is already enough for rules to apply.
+export function denyRulesNotApplicableText(reg) {
+  return protectDefaultEnabled(reg)
+    ? "Not applicable (no profiles yet; ~/.claude counts as one once you add a profile)."
+    : "Not applicable (needs two or more profiles, at least one of them Code).";
+}
+
+export function denyRulesOkText(reg) {
+  return protectDefaultEnabled(reg)
+    ? "Every Code install (profiles and ~/.claude) blocks reads of the others' directories."
+    : "Every Code profile blocks reads of the others' directories.";
+}
+
 function checkDenyRules(t, reg, fix) {
   step("Cross-profile read protection");
 
@@ -1404,13 +1418,13 @@ function checkDenyRules(t, reg, fix) {
 
   const findings = auditDenyRules(reg);
   if (findings.length === 0) {
-    info("Not applicable (needs two or more profiles, at least one of them Code).");
+    info(denyRulesNotApplicableText(reg));
     return;
   }
 
   const drifted = findings.filter((f) => f.missing.length > 0);
   if (drifted.length === 0) {
-    ok("Every Code profile blocks reads of the others' directories.");
+    ok(denyRulesOkText(reg));
     return;
   }
 
