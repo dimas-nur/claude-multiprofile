@@ -277,6 +277,9 @@ export async function add() {
     desktopResult = setupDesktop({
       ...desktopConfig,
       codeConfigDir: codeConfig?.configDir,
+      // The launcher exports GH_CONFIG_DIR too, or Claude Code opened from
+      // this Desktop profile would use the default gh account.
+      ghConfigDir: codeConfig?.isolateGh ? defaultGhConfigDirFor(codeConfig.configDir) : undefined,
     });
   }
   if (codeConfig) {
@@ -530,6 +533,7 @@ async function linkExisting(profile, missing) {
     const desktopResult = setupDesktop({
       ...desktopConfig,
       codeConfigDir: next.code ? next.code.configDir : undefined,
+      ghConfigDir: next.code ? next.code.ghConfigDir || undefined : undefined,
     });
     next.desktop = {
       dataDir: desktopResult.dataDir,
