@@ -748,7 +748,8 @@ async function askDesktopQuestions(name) {
     `);
     seedConnectors = await confirm({
       message: "Copy your default profile's MCP connectors into this profile?",
-      default: true,
+      // Off by default: these carry the default account's API keys and tokens.
+      default: false,
     });
   }
 
@@ -840,7 +841,8 @@ async function askCodeQuestions(name) {
     `);
     seedFromDefault = await confirm({
       message: "Copy your Claude Code setup, including any API keys or tokens, into the new profile?",
-      default: true,
+      // Off by default: a work or client profile should not inherit personal credentials.
+      default: false,
     });
   }
 
