@@ -72,7 +72,7 @@ import {
 } from "../appclone.js";
 import { resyncDenyRules, auditDenyRules, readProtectionEnabled } from "../permissions.js";
 import { updateBlockState, blockUpdates, wantsUpdateBlock } from "../updates.js";
-import { recordFixPass } from "../state.js";
+import { gitCheckoutRoot, recordFixPass } from "../state.js";
 import { takeSnapshot, finishSnapshot, fixTargets, undoLatest } from "../snapshot.js";
 import {
   helperState,
@@ -371,7 +371,9 @@ function checkOwnVersion(t, currentVersion) {
   const cmp = compareVersions(currentVersion, latest);
   if (cmp < 0) {
     warn(`A newer version is available: ${latest}`);
-    info(`Upgrade with ${command("claude-multiprofile upgrade")}`);
+    info(gitCheckoutRoot()
+      ? "Running from a git checkout: update it with git; `claude-multiprofile upgrade` shows how."
+      : `Upgrade with ${command("claude-multiprofile upgrade")}`);
     t.warnings++;
   } else if (cmp > 0) {
     info(`Ahead of npm (${latest} published): running an unreleased build.`);
