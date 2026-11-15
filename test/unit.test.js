@@ -1443,18 +1443,21 @@ test("launch helper: decides by version and by which profile a copy is running o
   fs.writeFileSync(helper, HELPER_JS);
 
   // Stand-in apps: only Info.plist is read before anything is launched.
-  const fakeApp = (name, version) => {
+  // The source must carry Claude's bundle ID: the helper refuses to rebuild a
+  // copy from anything else.
+  const fakeApp = (name, version, bundleId = "com.anthropic.claudefordesktop") => {
     const dir = path.join(root, name, "Contents");
     fs.mkdirSync(dir, { recursive: true });
+    const id = bundleId ? `<key>CFBundleIdentifier</key><string>${bundleId}</string>` : "";
     fs.writeFileSync(
       path.join(dir, "Info.plist"),
-      `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleShortVersionString</key><string>${version}</string></dict></plist>`
+      `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>${id}<key>CFBundleShortVersionString</key><string>${version}</string></dict></plist>`
     );
     return path.join(root, name);
   };
   const source = fakeApp("Source.app", "2.10.0");
-  const decide = (clone) =>
-    execFileSync("/usr/bin/osascript", ["-l", "JavaScript", helper, clone, source, "", path.join(root, "data"), "Claude T", "-a", clone], {
+  const decide = (clone, from = source) =>
+    execFileSync("/usr/bin/osascript", ["-l", "JavaScript", helper, clone, from, "", path.join(root, "data"), "Claude T", "-a", clone], {
       encoding: "utf8",
       env: { ...process.env, CMP_LAUNCH_DRY_RUN: "1" },
     }).trim();
@@ -1465,6 +1468,11 @@ test("launch helper: decides by version and by which profile a copy is running o
   // A copy that updated itself past its source is kept, never downgraded.
   assert.equal(decide(fakeApp("Ahead.app", "2.11.0")), "not running: current");
   assert.equal(decide(path.join(root, "Missing.app")), "not running: unknown");
+  // A copy behind a source that is not Claude, or that has no bundle ID, is
+  // opened as it is rather than rebuilt from that source.
+  const stale = fakeApp("Stale.app", "2.9.0");
+  assert.equal(decide(stale, fakeApp("Other.app", "3.0.0", "com.example.other")), "not running: refused-source");
+  assert.equal(decide(stale, fakeApp("NoId.app", "3.0.0", null)), "not running: refused-source");
 });
 
 test("compileApp: refuses a launcher path that is the app it opens, case-insensitively", async () => {
