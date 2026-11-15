@@ -252,7 +252,9 @@ export function resyncDenyRules(registry, opts = {}) {
   // Protection for the default install switched off: take back what was
   // written there before, then leave it out of every profile's rules.
   if (!protectDefaultEnabled(registry)) stripManagedDenyRules(defaultPseudoProfile());
-  // Nothing to keep apart until there is at least one profile.
+  // Nothing to keep apart until there is at least one profile. Once the last
+  // one is gone, take back what the default install was given for it.
+  if (registered.length === 0) stripManagedDenyRules(defaultPseudoProfile());
   const profiles = registered.length > 0 ? withDefault(registry, registered) : registered;
   const results = [];
   for (const p of profiles) {

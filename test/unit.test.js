@@ -560,6 +560,11 @@ test("resyncDenyRules: the default install and every profile are kept apart, bot
     assert.ok(readSettings(b.code.configDir).permissions.deny.includes(`Read(/${home}/.claude/**)`));
     assert.ok(auditDenyRules({ profiles: [a, b] }).every((f) => f.missing.length === 0), "no drift");
 
+    // Removing the last profile takes back what ~/.claude was given for it.
+    resyncDenyRules({ profiles: [] });
+    assert.deepEqual(readDef().permissions.deny, ["Bash(rm -rf:*)"], "last profile gone: ~/.claude cleaned");
+    resyncDenyRules({ profiles: [a, b] });
+
     // Opting out takes back only what was written, on both sides.
     resyncDenyRules({ protectDefaultProfile: false, profiles: [a, b] });
     assert.deepEqual(readDef().permissions.deny, ["Bash(rm -rf:*)"]);
