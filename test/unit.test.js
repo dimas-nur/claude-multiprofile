@@ -766,6 +766,17 @@ test("missingTargets: an existing name is only taken when nothing is left to add
 });
 
 // ---------------------------------------------------------------------------
+// doctor.js - read protection wording follows protectDefaultProfile
+
+test("doctor: read protection text counts ~/.claude unless opted out", async () => {
+  const { denyRulesNotApplicableText, denyRulesOkText } = await import("../src/commands/doctor.js");
+  assert.match(denyRulesNotApplicableText({ profiles: [] }), /~\/\.claude counts as one/);
+  assert.match(denyRulesOkText({ profiles: [] }), /profiles and ~\/\.claude/);
+  const off = { profiles: [], protectDefaultProfile: false };
+  assert.match(denyRulesNotApplicableText(off), /two or more profiles/);
+  assert.doesNotMatch(denyRulesOkText(off), /~\/\.claude/);
+});
+
 // doctor.js - resolving a package's declared executables
 // ---------------------------------------------------------------------------
 //
