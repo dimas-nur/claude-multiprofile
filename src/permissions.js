@@ -104,7 +104,9 @@ function denyRuleForFile(absPath) {
 // real profile, since sanitizeName() strips spaces and brackets.
 export const DEFAULT_PSEUDO_NAME = "default (~/.claude)";
 
-export function defaultPseudoProfile(home = HOME) {
+// CMP_DEFAULT_HOME points this at a scratch folder in tests, so a test run
+// never writes to the real ~/.claude/settings.json.
+export function defaultPseudoProfile(home = process.env.CMP_DEFAULT_HOME || HOME) {
   const desktopDir = path.join(home, "Library", "Application Support", "Claude");
   return {
     name: DEFAULT_PSEUDO_NAME,
@@ -336,6 +338,8 @@ export function auditDenyRules(registry) {
   const findings = [];
   for (const p of profiles) {
     if (!p.code || !p.code.configDir) continue;
+    // No ~/.claude at all: nothing there to protect or to report.
+    if (p.name === DEFAULT_PSEUDO_NAME && !fileExists(p.code.configDir)) continue;
     const expected = managedRulesForProfile(p, profiles);
     if (expected.length === 0) continue;
     const settingsPath = settingsPathFor(p.code.configDir);
