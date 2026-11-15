@@ -270,6 +270,13 @@ function refresh(clone, source, hue, interrupted) {
   var have = version(clone), want = version(source);
   if (!have || !want) { log('WARN', 'could not read versions (copy ' + have + ', source ' + want + '); opening as is'); return 'unknown'; }
   if (compare(have, want) >= 0) return 'current';
+  // The copy is rebuilt from source, so source must be Claude too. isClaude()
+  // lets a missing bundle ID through; here an unknown source is refused.
+  var sourceId = plistValue(source, 'CFBundleIdentifier');
+  if (!sourceId || sourceId.indexOf('com.anthropic.') !== 0) {
+    log('ERROR', source + ' is not Claude (bundle ' + sourceId + '); not copying it, opening ' + have);
+    return 'refused-source';
+  }
   if (env('CMP_LAUNCH_DRY_RUN') === '1') return 'would-refresh ' + have + ' -> ' + want;
   if (interrupted) {
     log('WARN', 'opening ' + have + ' this time; the update to ' + want + ' happens on the next click');
