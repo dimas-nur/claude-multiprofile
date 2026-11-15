@@ -23,6 +23,7 @@ import crypto from "node:crypto";
 import { configDir } from "./registry.js";
 import { localConfigRootFor } from "./updates.js";
 import { HELPER_PATH } from "./launchhelper.js";
+import { HOME } from "./util.js";
 
 const SNAP_ROOT = path.join(configDir(), "snapshots");
 const KEEP = 10;
@@ -38,7 +39,8 @@ function sha(file) {
 
 // Every path a fix run may edit, for this registry.
 export function fixTargets(reg) {
-  const files = [HELPER_PATH, path.join(configDir(), "state.json")];
+  // ~/.claude/settings.json: the default install gets marked deny rules too.
+  const files = [HELPER_PATH, path.join(configDir(), "state.json"), path.join(HOME, ".claude", "settings.json")];
   const dirs = [];
   for (const p of (reg && reg.profiles) || []) {
     if (p.code && p.code.configDir) {

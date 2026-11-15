@@ -24,7 +24,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { ok, warn, info, dim, tildify, fileExists } from "./util.js";
+import { HOME, ok, warn, info, dim, tildify, fileExists } from "./util.js";
 
 // The settings key we own. Anything listed here was written by us and is safe
 // to remove on the next resync; rules outside this list belong to the user.
@@ -90,6 +90,39 @@ function denyRuleForPath(absPath) {
 // profile's Code config dir and Desktop data dir. We deliberately do NOT deny
 // the user's default ~/.claude, which is their primary and denying it would be
 // surprising; issue #4 is about profiles discovering *each other*.
+function denyRuleForFile(absPath) {
+  if (!absPath || !absPath.startsWith("/")) return null;
+  return `Read(//${absPath.replace(/^\/+/, "")})`;
+}
+
+// The default install (~/.claude, ~/.claude.json, the default Desktop data
+// folder), which this tool does not otherwise manage. Treated as one more
+// profile when rules are resynced, so every profile is kept out of it and it
+// is kept out of every profile, as profiles come and go. Its settings.json
+// only ever gets this tool's own marked rules, exactly like a profile's; the
+// user's own deny rules there are left alone. The name cannot collide with a
+// real profile, since sanitizeName() strips spaces and brackets.
+export const DEFAULT_PSEUDO_NAME = "default (~/.claude)";
+
+export function defaultPseudoProfile(home = HOME) {
+  const desktopDir = path.join(home, "Library", "Application Support", "Claude");
+  return {
+    name: DEFAULT_PSEUDO_NAME,
+    code: { configDir: path.join(home, ".claude") },
+    desktop: fileExists(desktopDir) ? { dataDir: desktopDir } : null,
+    extraFiles: [path.join(home, ".claude.json")],
+  };
+}
+
+// On unless the registry says "protectDefaultProfile": false.
+export function protectDefaultEnabled(registry) {
+  return !registry || registry.protectDefaultProfile !== false;
+}
+
+function withDefault(registry, profiles) {
+  return protectDefaultEnabled(registry) ? [...profiles, defaultPseudoProfile()] : profiles;
+}
+
 function managedRulesForProfile(profile, allProfiles) {
   const rules = [];
   for (const other of allProfiles) {
@@ -99,6 +132,10 @@ function managedRulesForProfile(profile, allProfiles) {
     if (other.desktop && other.desktop.dataDir) dirs.push(other.desktop.dataDir);
     for (const d of dirs) {
       const rule = denyRuleForPath(d);
+      if (rule && !rules.includes(rule)) rules.push(rule);
+    }
+    for (const f of other.extraFiles || []) {
+      const rule = denyRuleForFile(f);
       if (rule && !rules.includes(rule)) rules.push(rule);
     }
   }
@@ -202,14 +239,19 @@ export function readProtectionEnabled(registry) {
 // change to the profile set (add / remove / rename). `opts.verbose` prints a
 // line per updated profile; otherwise it works quietly.
 export function resyncDenyRules(registry, opts = {}) {
-  const profiles = (registry && registry.profiles) || [];
+  const registered = (registry && registry.profiles) || [];
   if (!readProtectionEnabled(registry)) {
-    const stripped = profiles.filter((p) => stripManagedDenyRules(p));
+    const stripped = [...registered, defaultPseudoProfile()].filter((p) => stripManagedDenyRules(p));
     if (opts.verbose && stripped.length > 0) {
       ok(`Removed cross-profile read-protection from ${stripped.map((p) => p.name).join(", ")}.`);
     }
     return [];
   }
+  // Protection for the default install switched off: take back what was
+  // written there before, then leave it out of every profile's rules.
+  if (!protectDefaultEnabled(registry)) stripManagedDenyRules(defaultPseudoProfile());
+  // Nothing to keep apart until there is at least one profile.
+  const profiles = registered.length > 0 ? withDefault(registry, registered) : registered;
   const results = [];
   for (const p of profiles) {
     const r = resyncOne(p, profiles);
@@ -289,7 +331,8 @@ export function stripManagedDenyRules(profile) {
 // actually deny every sibling it should? Returns per-profile findings.
 export function auditDenyRules(registry) {
   if (!readProtectionEnabled(registry)) return [];
-  const profiles = (registry && registry.profiles) || [];
+  const registered = (registry && registry.profiles) || [];
+  const profiles = registered.length > 0 ? withDefault(registry, registered) : registered;
   const findings = [];
   for (const p of profiles) {
     if (!p.code || !p.code.configDir) continue;
