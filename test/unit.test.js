@@ -278,6 +278,17 @@ test("writeAliases creates a managed block when none exists, and replaces it on 
 
 import { resyncDenyRules, auditDenyRules, settingsPathFor } from "../src/permissions.js";
 
+// The default install is protected too, and lives under HOME. Point it at a
+// scratch folder for the whole file, so no test touches ~/.claude. Its
+// folders do not exist, so profiles get rules for it but nothing is written
+// there; the tests below that need it create them.
+const DEFAULT_HOME_SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), "cmp-defhome-"));
+process.env.CMP_DEFAULT_HOME = DEFAULT_HOME_SANDBOX;
+
+// The rules a profile holds for its registered siblings, without the ones
+// for the default install.
+const siblingRules = (deny) => deny.filter((r) => !r.includes(DEFAULT_HOME_SANDBOX));
+
 function tmpProfile(name, root) {
   const configDir = path.join(root, `.claude-${name}`);
   fs.mkdirSync(configDir, { recursive: true });
@@ -299,8 +310,8 @@ test("resyncDenyRules: each profile denies reads of every sibling, using absolut
   const b = tmpProfile("beta", root);
   resyncDenyRules({ profiles: [a, b] });
 
-  const denyA = readSettings(a.code.configDir).permissions.deny;
-  const denyB = readSettings(b.code.configDir).permissions.deny;
+  const denyA = siblingRules(readSettings(a.code.configDir).permissions.deny);
+  const denyB = siblingRules(readSettings(b.code.configDir).permissions.deny);
 
   // Absolute paths in Claude Code settings require a DOUBLE leading slash;
   // a single slash would resolve relative to the settings source instead.
@@ -366,16 +377,17 @@ test("resyncDenyRules: drops stale rules when a profile goes away, and is idempo
   const c = tmpProfile("gamma", root);
 
   resyncDenyRules({ profiles: [a, b, c] });
-  assert.equal(readSettings(a.code.configDir).permissions.deny.length, 2);
+  assert.equal(siblingRules(readSettings(a.code.configDir).permissions.deny).length, 2);
+  const total = readSettings(a.code.configDir).permissions.deny.length;
 
   // Running again with the same set must not duplicate anything.
   resyncDenyRules({ profiles: [a, b, c] });
-  assert.equal(readSettings(a.code.configDir).permissions.deny.length, 2);
+  assert.equal(readSettings(a.code.configDir).permissions.deny.length, total);
 
   // gamma removed -> alpha should no longer reference it.
   resyncDenyRules({ profiles: [a, b] });
   const deny = readSettings(a.code.configDir).permissions.deny;
-  assert.equal(deny.length, 1);
+  assert.equal(siblingRules(deny).length, 1);
   assert.ok(!deny.some((r) => r.includes(".claude-gamma")), "stale rule removed");
 
   fs.rmSync(root, { recursive: true, force: true });
@@ -509,13 +521,55 @@ test("auditDenyRules: reports drift when a managed rule is missing", () => {
   // Nothing written yet -> alpha is missing its rule.
   let findings = auditDenyRules(reg);
   assert.equal(findings.length, 2);
-  assert.equal(findings[0].missing.length, 1);
+  assert.equal(siblingRules(findings[0].missing).length, 1);
 
   resyncDenyRules(reg);
   findings = auditDenyRules(reg);
   assert.ok(findings.every((f) => f.missing.length === 0), "no drift after resync");
 
   fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("resyncDenyRules: the default install and every profile are kept apart, both ways", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "cmp-perm-"));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "cmp-defhome-"));
+  const prev = process.env.CMP_DEFAULT_HOME;
+  process.env.CMP_DEFAULT_HOME = home;
+  try {
+    fs.mkdirSync(path.join(home, ".claude"));
+    fs.writeFileSync(path.join(home, ".claude.json"), "{}");
+    const defSettings = path.join(home, ".claude", "settings.json");
+    fs.writeFileSync(defSettings, JSON.stringify({ model: "opus", permissions: { deny: ["Bash(rm -rf:*)"] } }));
+    const a = tmpProfile("alpha", root);
+    const b = tmpProfile("beta", root);
+    const readDef = () => JSON.parse(fs.readFileSync(defSettings, "utf8"));
+
+    resyncDenyRules({ profiles: [a] });
+    const denyA = readSettings(a.code.configDir).permissions.deny;
+    assert.ok(denyA.includes(`Read(/${home}/.claude/**)`), "profile blocks ~/.claude");
+    assert.ok(denyA.includes(`Read(/${home}/.claude.json)`), "profile blocks ~/.claude.json");
+    let def = readDef();
+    assert.ok(def.permissions.deny.includes("Bash(rm -rf:*)"), "user rule in ~/.claude survives");
+    assert.equal(def.model, "opus", "unrelated settings in ~/.claude survive");
+    assert.ok(def.permissions.deny.some((r) => r.includes(".claude-alpha")), "~/.claude blocks alpha");
+
+    // A profile added later is picked up on the next resync.
+    resyncDenyRules({ profiles: [a, b] });
+    def = readDef();
+    assert.ok(def.permissions.deny.some((r) => r.includes(".claude-beta")), "~/.claude blocks beta");
+    assert.ok(readSettings(b.code.configDir).permissions.deny.includes(`Read(/${home}/.claude/**)`));
+    assert.ok(auditDenyRules({ profiles: [a, b] }).every((f) => f.missing.length === 0), "no drift");
+
+    // Opting out takes back only what was written, on both sides.
+    resyncDenyRules({ protectDefaultProfile: false, profiles: [a, b] });
+    assert.deepEqual(readDef().permissions.deny, ["Bash(rm -rf:*)"]);
+    assert.equal(readDef().claudeMultiprofileManagedDeny, undefined);
+    assert.ok(!readSettings(a.code.configDir).permissions.deny.some((r) => r.includes(home)));
+  } finally {
+    process.env.CMP_DEFAULT_HOME = prev;
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  }
 });
 
 // ---------------------------------------------------------------------------
