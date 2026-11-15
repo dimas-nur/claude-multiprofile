@@ -27,6 +27,13 @@ export function toolVersion() {
   }
 }
 
+// The package root holds a .git folder when this copy was installed from a
+// git checkout (npm install -g .) rather than from the npm registry.
+export function gitCheckoutRoot() {
+  const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+  return fs.existsSync(path.join(root, ".git")) ? root : null;
+}
+
 export function readState() {
   try {
     const s = JSON.parse(fs.readFileSync(STATE_PATH, "utf8"));

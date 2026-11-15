@@ -17,7 +17,7 @@ import { spawnSync } from "node:child_process";
 import { header, info, ok, warn, err, command, dim, tildify, compareVersions } from "../util.js";
 import { resolveBinaries } from "../claudebin.js";
 import { getRegistry } from "../registry.js";
-import { fixPassDue, readState, toolVersion } from "../state.js";
+import { fixPassDue, gitCheckoutRoot, readState, toolVersion } from "../state.js";
 import { doctor } from "./doctor.js";
 
 const PKG_NAME = "claude-multiprofile";
@@ -64,6 +64,19 @@ function applyFixes(binary, version) {
 
 export async function upgrade(args = []) {
   header("Upgrade claude-multiprofile");
+
+  // Installed from a git checkout (a fork carrying its own patches): an npm
+  // install would replace it with the registry package and drop those patches.
+  const checkout = gitCheckoutRoot();
+  if (checkout) {
+    warn("This copy runs from a git checkout, so upgrade would replace it with the npm package.");
+    info(`Update the checkout instead, in ${tildify(checkout)}:`);
+    console.log(`  ${command("git fetch upstream --tags")}`);
+    console.log(`  ${command("git diff HEAD <new-tag> -- src bin package.json package-lock.json")}`);
+    console.log(`  ${command("git rebase <new-tag> && npm ci --ignore-scripts")}`);
+    console.log(`  ${command("claude-multiprofile doctor --fix")}`);
+    process.exit(1);
+  }
 
   const skipFixes = args.includes("--no-fix");
   const current = toolVersion();
